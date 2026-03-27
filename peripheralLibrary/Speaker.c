@@ -2,7 +2,20 @@
 
 /* === Internal Buffer === */
 static uint16_t dac_buffer[AUDIO_BUFFER_SIZE];
-static uint32_t audio_index = AUDIO_HEADER_SIZE;
+
+/* === Audio State === */
+typedef struct {
+    const uint8_t *data;
+    uint32_t length;
+    uint32_t index;
+    uint8_t looping;
+} AudioTrack;
+
+static AudioTrack current_track;
+static AudioTrack bgm_track;
+static AudioTrack sfx_track;
+
+static uint8_t playing_sfx = 0;
 
 /* === Internal Functions === */
 static void AUDIO_FillBuffer(uint16_t *buf, uint32_t len);
@@ -11,17 +24,44 @@ static void AUDIO_FillBuffer(uint16_t *buf, uint32_t len);
 
 void AUDIO_Init(void)
 {
-    // Nothing required here for basic setup
+    // Nothing required
+}
+
+/* ===================================================== */
+/* === NEW: Play Background Music ======================= */
+
+void AUDIO_PlayMusic(const uint8_t *data, uint32_t length)
+{
+    bgm_track.data = data;
+    bgm_track.length = length;
+    bgm_track.index = AUDIO_HEADER_SIZE;
+    bgm_track.looping = 1;
+
+    if (!playing_sfx) {
+        current_track = bgm_track;
+    }
+}
+
+/* ===================================================== */
+/* === NEW: Play Sound Effect =========================== */
+
+void AUDIO_PlaySFX(const uint8_t *data, uint32_t length)
+{
+    sfx_track.data = data;
+    sfx_track.length = length;
+    sfx_track.index = AUDIO_HEADER_SIZE;
+    sfx_track.looping = 0;
+
+    current_track = sfx_track;
+    playing_sfx = 1;
 }
 
 /* ===================================================== */
 
 void AUDIO_Play(void)
 {
-    /* Fill initial buffer */
     AUDIO_FillBuffer(dac_buffer, AUDIO_BUFFER_SIZE);
 
-    /* Start DAC with DMA */
     HAL_DAC_Start_DMA(
         &hdac1,
         DAC_CHANNEL_1,
@@ -30,7 +70,6 @@ void AUDIO_Play(void)
         DAC_ALIGN_12B_R
     );
 
-    /* Start timer (drives sample rate) */
     HAL_TIM_Base_Start(&htim6);
 }
 
@@ -48,29 +87,41 @@ static void AUDIO_FillBuffer(uint16_t *buf, uint32_t len)
 {
     for (uint32_t i = 0; i < len; i++)
     {
-        if (audio_index + 1 >= PvZloseSound_wav_len)
+        /* If track finished */
+        if (current_track.index + 1 >= current_track.length)
         {
-            audio_index = AUDIO_HEADER_SIZE; // loop
+            if (playing_sfx)
+            {
+                /* SFX finished → return to BGM */
+                playing_sfx = 0;
+                current_track = bgm_track;
+            }
+            else if (current_track.looping)
+            {
+                current_track.index = AUDIO_HEADER_SIZE;
+            }
+            else
+            {
+                /* No loop → silence */
+                buf[i] = 2048;
+                continue;
+            }
         }
 
-        /* Read 16-bit signed sample (little endian) */
         int16_t sample = (int16_t)(
-            PvZloseSound_wav[audio_index] |
-            (PvZloseSound_wav[audio_index + 1] << 8)
+            current_track.data[current_track.index] |
+            (current_track.data[current_track.index + 1] << 8)
         );
 
-        audio_index += 2;
+        current_track.index += 2;
 
-        /* Convert signed PCM → 12-bit DAC */
         uint16_t dac_val = (sample + 32768) >> 4;
-
         buf[i] = dac_val;
     }
 }
 
 /* ===================================================== */
 /* DMA CALLBACKS */
-/* These must be visible to HAL (not static)            */
 /* ===================================================== */
 
 void HAL_DAC_ConvHalfCpltCallbackCh1(DAC_HandleTypeDef *hdac)

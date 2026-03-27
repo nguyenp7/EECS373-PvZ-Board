@@ -57,4 +57,5 @@ void ILI9488_WriteString(uint16_t x, uint16_t y,
 void ILI9488_DrawImage(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint8_t *img);
 /* Font */
 extern const unsigned char font[];
+extern const unsigned char Sun[];
 #endif
