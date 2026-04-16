@@ -115,7 +115,7 @@ int main(void)
   /* USER CODE END 2 */
 
   /* Infinite loop */
-  /* USER CODE BEGIN WHILE */
+  /* USER CODE BEGIN WHILE */                        
   while (1)
   {
 	if (HAL_UART_Receive(&huart3, &rx_byte, 1, HAL_MAX_DELAY) == HAL_OK)
