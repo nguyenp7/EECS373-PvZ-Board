@@ -35,8 +35,8 @@ extern SPI_HandleTypeDef SD_SPI_HANDLE;
 /* Function prototypes */
 
 //(Note that the _256 is used as a mask to clear the prescalar bits as it provides binary 111 in the correct position)
-#define FCLK_SLOW() { MODIFY_REG(SD_SPI_HANDLE.Instance->CR1, SPI_BAUDRATEPRESCALER_256, SPI_BAUDRATEPRESCALER_128); }	/* Set SCLK = slow, approx 280 KBits/s*/
-#define FCLK_FAST() { MODIFY_REG(SD_SPI_HANDLE.Instance->CR1, SPI_BAUDRATEPRESCALER_256, SPI_BAUDRATEPRESCALER_32); }	/* Set SCLK = fast, approx 4.5 MBits/s */
+#define FCLK_SLOW() { MODIFY_REG(SD_SPI_HANDLE.Instance->CR1, SPI_BAUDRATEPRESCALER_256, SPI_BAUDRATEPRESCALER_256); }	/* Set SCLK = slow, approx 280 KBits/s*/
+#define FCLK_FAST() { MODIFY_REG(SD_SPI_HANDLE.Instance->CR1, SPI_BAUDRATEPRESCALER_256, SPI_BAUDRATEPRESCALER_8); }	/* Set SCLK = fast, approx 4.5 MBits/s */
 
 #define CS_HIGH()	{HAL_GPIO_WritePin(SD_CS_GPIO_Port, SD_CS_Pin, GPIO_PIN_SET);}
 #define CS_LOW()	{HAL_GPIO_WritePin(SD_CS_GPIO_Port, SD_CS_Pin, GPIO_PIN_RESET);}
@@ -77,6 +77,7 @@ extern SPI_HandleTypeDef SD_SPI_HANDLE;
 #define CT_SDC		(CT_SD1|CT_SD2)	/* SD */
 #define CT_BLOCK	0x08		/* Block addressing */
 
+volatile uint8_t spi_done = 0;
 static volatile
 DSTATUS Stat = STA_NOINIT;	/* Physical drive status */
 
@@ -111,17 +112,32 @@ BYTE xchg_spi (
     return rxDat;
 }
 
+void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi)
+{
+    if (hspi == &SD_SPI_HANDLE) {
+        spi_done = 1;
+    }
+}
 
 /* Receive multiple byte */
-static
-void rcvr_spi_multi (
-	BYTE *buff,		/* Pointer to data buffer */
-	UINT btr		/* Number of bytes to receive (even number) */
-)
+static void rcvr_spi_multi (BYTE *buff, UINT btr)
 {
-	for(UINT i=0; i<btr; i++) {
-		*(buff+i) = xchg_spi(0xFF);
-	}
+    static uint8_t dummy_tx[512];
+
+    memset(dummy_tx, 0xFF, btr);
+
+    spi_done = 0;  // ✅ reset BEFORE starting DMA
+
+    HAL_SPI_TransmitReceive_DMA(&SD_SPI_HANDLE, dummy_tx, buff, btr);
+
+    uint32_t start = HAL_GetTick();
+
+    while (!spi_done) {
+        if ((HAL_GetTick() - start) > 100) {
+            // timeout → avoid infinite lock
+            break;
+        }
+    }
 }
 
 
