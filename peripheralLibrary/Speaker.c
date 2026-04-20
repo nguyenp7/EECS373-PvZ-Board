@@ -148,20 +148,18 @@ static int16_t AUDIO_ReadSample(AudioTrack *track)
 {
     if (!track->active) return 0;
 
-    // Need 2 bytes available
-    if (RingBuffer_Available(track) < 2) {
-        // Buffer underrun — return silence
-        // If file is exhausted (not looping, file closed), deactivate
+    // Need 1 byte now
+    if (RingBuffer_Available(track) < 1) {
         if (!track->looping) track->active = 0;
         return 0;
     }
 
-    int16_t sample =
-        (int16_t)(track->buffer[track->read_pos] |
-                 (track->buffer[(track->read_pos + 1) % FILE_BUFFER_SIZE] << 8));
+    uint8_t byte = track->buffer[track->read_pos];
 
-    track->read_pos = (track->read_pos + 2) % FILE_BUFFER_SIZE;
-    return sample;
+    track->read_pos = (track->read_pos + 1) % FILE_BUFFER_SIZE;
+
+    // Convert unsigned 8-bit → signed 16-bit
+    return ((int16_t)byte - 128) << 8;
 }
 
 /* ===================================================== */
@@ -186,7 +184,7 @@ static void AUDIO_FillBuffer(uint16_t *buf, uint32_t len)
 
 
         // OR a slightly louder "Headroom" mix (e.g., 80% each)
-        int32_t mixed = (bgm * 4 / 5) + (sfx * 4 / 5);
+        int32_t mixed = (bgm >> 2) + (sfx >> 2);
 
         // Convert signed 16-bit → unsigned 12-bit for DAC
         buf[i] = (uint16_t)((mixed + 32768) >> 4);
